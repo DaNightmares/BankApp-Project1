@@ -1,13 +1,3 @@
-"""Tkinter front end for the C++ Bank backend.
-
-The banking rules (deposits, withdrawals, duplicate checks, file format) all
-live in bank.cpp. This file only collects input, calls the C wrapper in
-bank_wrapper.cpp through ctypes, and shows the result.
-
-Build the shared library first (see the commands in the explanation), then run:
-    python bank_app.py
-"""
-
 import ctypes
 import math
 import os
