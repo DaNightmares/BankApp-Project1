@@ -6,14 +6,16 @@
 
 // One client record. Field order matches the CSV file:
 // client_name,ssn,bank_account_number,balance
-struct Client {
+struct Client 
+{
     std::string client_name;          // Client's full name
     std::string ssn;                  // Fictitious SSN / identifier
     std::string bank_account_number;  // Unique bank account identifier
     double balance;                   // Current account balance
 };
 
-class Bank {
+class Bank 
+{
 public:
     // Construction and file loading
     explicit Bank(const std::string& filename);
