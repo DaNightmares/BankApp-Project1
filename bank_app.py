@@ -15,6 +15,38 @@ import sys
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
+
+THEMES = {
+    "Light": {
+        "window": "#F3F4F6", "panel": "#FFFFFF", "field": "#FFFFFF",
+        "text": "#111827", "muted": "#4B5563", "border": "#D1D5DB",
+        "accent": "#047857", "accent_active": "#065F46",
+        "select_bg": "#D1FAE5", "select_fg": "#111827",
+        "success": "#1B6E2D", "error": "#B00020",
+    },
+    "Dark": {
+        "window": "#111827", "panel": "#1F2937", "field": "#111827",
+        "text": "#F3F4F6", "muted": "#D1D5DB", "border": "#374151",
+        "accent": "#10B981", "accent_active": "#059669",
+        "select_bg": "#065F46", "select_fg": "#FFFFFF",
+        "success": "#34D399", "error": "#F87171",
+    },
+    "Ocean": {
+        "window": "#0B1E2D", "panel": "#12324A", "field": "#0B1E2D",
+        "text": "#E6F1F8", "muted": "#A9C4D6", "border": "#1F4A66",
+        "accent": "#2A9BD8", "accent_active": "#1C7DB3",
+        "select_bg": "#1C5A80", "select_fg": "#FFFFFF",
+        "success": "#5FD3A6", "error": "#FF8A80",
+    },
+    "High contrast": {
+        "window": "#000000", "panel": "#000000", "field": "#000000",
+        "text": "#FFFFFF", "muted": "#FFFFFF", "border": "#FFFFFF",
+        "accent": "#FFFF00", "accent_active": "#FFD700",
+        "select_bg": "#FFFF00", "select_fg": "#000000",
+        "success": "#00FF00", "error": "#FF5555",
+    },
+}
 
 # ---------------------------------------------------------------------------
 # ctypes declarations (must match bank_wrapper.cpp)
@@ -154,11 +186,12 @@ def parse_number(text, field_name):
 # ---------------------------------------------------------------------------
 # The application
 # ---------------------------------------------------------------------------
+def is_light(hex_color):
+    """True if a color is light enough that dark text should go on it."""
+    r, g, b = (int(hex_color[i:i + 2], 16) for i in (1, 3, 5))
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 150
 
 class BankApp:
-    SUCCESS_COLOR = "#1b6e2d"
-    ERROR_COLOR = "#b00020"
-    NEUTRAL_COLOR = "#333333"
 
     def __init__(self, root):
         self.root = root
@@ -168,11 +201,82 @@ class BankApp:
         self.unsaved_changes = False
         self.shown_account = None   # account currently displayed in the Find section
 
+        self.style = ttk.Style(self.root)
+        self.theme_name = tk.StringVar(value="Light")
+        self.status_kind = "neutral"     # "neutral", "success" or "error"
+        self.custom_bg = None            # a color picked by the user, or None
+
         self._build_widgets()
+        self.apply_theme()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         # Any unexpected Python error in a button handler is shown, not fatal.
         self.root.report_callback_exception = self._on_unexpected_error
-        self._set_status("Start by loading a client file.", self.NEUTRAL_COLOR)
+        self._set_status("Start by loading a client file.")
+    
+    def apply_theme(self):
+        """Recolor every widget from the selected theme. Bank data is untouched."""
+        c = dict(THEMES[self.theme_name.get()])   # a copy, so THEMES itself isn't changed
+        if self.custom_bg:
+            c["window"] = self.custom_bg
+            c["text"] = "#111827" if is_light(self.custom_bg) else "#F3F4F6"
+        self.colors = c
+        try:
+            self.style.theme_use("clam")   # the built-in theme that honors custom colors
+        except tk.TclError:
+            pass
+
+        self.root.configure(bg=c["window"])
+        s = self.style
+        s.configure("TFrame", background=c["window"])
+        s.configure("TLabel", background=c["window"], foreground=c["text"])
+        s.configure("TLabelframe", background=c["window"], bordercolor=c["border"])
+        s.configure("TLabelframe.Label", background=c["window"], foreground=c["text"])
+        s.configure("TButton", background=c["panel"], foreground=c["text"],
+                    bordercolor=c["border"], padding=(10, 5))
+        s.map("TButton",
+              background=[("pressed", c["accent_active"]), ("active", c["accent"])],
+              foreground=[("pressed", c["select_fg"]), ("active", c["select_fg"])])
+        s.configure("TEntry", fieldbackground=c["field"], foreground=c["text"],
+                    insertcolor=c["text"], bordercolor=c["border"])
+        s.map("TEntry", bordercolor=[("focus", c["accent"])])
+        s.configure("TCombobox", fieldbackground=c["field"], background=c["panel"],
+                    foreground=c["text"], arrowcolor=c["text"], bordercolor=c["border"])
+        s.map("TCombobox", fieldbackground=[("readonly", c["field"])],
+              foreground=[("readonly", c["text"])])
+        s.configure("Treeview", background=c["panel"], fieldbackground=c["panel"],
+                    foreground=c["text"], rowheight=26, bordercolor=c["border"])
+        s.map("Treeview", background=[("selected", c["select_bg"])],
+              foreground=[("selected", c["select_fg"])])
+        s.configure("Treeview.Heading", background=c["window"],
+                    foreground=c["text"], relief="flat")
+        s.map("Treeview.Heading", background=[("active", c["border"])])
+        s.configure("Vertical.TScrollbar", background=c["panel"],
+                    troughcolor=c["window"], bordercolor=c["border"])
+
+        # The combobox dropdown is a plain Tk listbox, styled through the option database.
+        self.root.option_add("*TCombobox*Listbox.background", c["field"])
+        self.root.option_add("*TCombobox*Listbox.foreground", c["text"])
+        self.root.option_add("*TCombobox*Listbox.selectBackground", c["select_bg"])
+        self.root.option_add("*TCombobox*Listbox.selectForeground", c["select_fg"])
+
+        # status_label is a classic tk.Label, so it is colored directly.
+        self.status_label.configure(bg=c["panel"])
+        self._paint_status()
+
+    def select_theme(self):
+        """A theme picked from the list starts from its own background."""
+        self.custom_bg = None
+        self.apply_theme()
+
+    def choose_background(self):
+        _, hex_color = colorchooser.askcolor(
+            initialcolor=self.colors["window"], parent=self.root,
+            title="Choose background color")
+        if hex_color:                    # None if the user cancelled
+            self.custom_bg = hex_color
+            self.apply_theme()
+
+
 
     # ----- layout ----------------------------------------------------------
 
@@ -191,6 +295,7 @@ class BankApp:
         main.columnconfigure(1, weight=1, uniform="half")
         main.rowconfigure(2, weight=1)
 
+
         # 1. Client file
         file_frame = ttk.LabelFrame(main, text="1. Client file", padding=10)
         file_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
@@ -201,6 +306,13 @@ class BankApp:
             row=0, column=1, padx=(0, 12))
         self.file_label = ttk.Label(file_frame, text="No file loaded")
         self.file_label.grid(row=0, column=2, sticky="w")
+        ttk.Label(file_frame, text="Theme:").grid(row=0, column=3, padx=(8, 4))
+        theme_box = ttk.Combobox(file_frame, textvariable=self.theme_name,
+                                 values=list(THEMES), state="readonly", width=14)
+        theme_box.grid(row=0, column=4, sticky="e")
+        theme_box.bind("<<ComboboxSelected>>", lambda event: self.select_theme())
+        ttk.Button(file_frame, text="Background...", command=self.choose_background).grid(
+            row=0, column=5, sticky="e", padx=(8, 0))
 
         # 2. Find client
         find_frame = ttk.LabelFrame(main, text="2. Find client", padding=10)
@@ -279,16 +391,21 @@ class BankApp:
 
     # ----- feedback --------------------------------------------------------
 
-    def _set_status(self, message, color):
-        self.status_label.configure(text=message, fg=color)
+    def _set_status(self, message, kind="neutral"):
+        self.status_kind = kind
+        self.status_label.configure(text=message)
+        self._paint_status()
+
+    def _paint_status(self):
+        key = {"success": "success", "error": "error"}.get(self.status_kind, "muted")
+        self.status_label.configure(fg=self.colors[key])
 
     def show_success(self, message):
-        self._set_status(message, self.SUCCESS_COLOR)
+        self._set_status(message, "success")
 
     def show_error(self, message):
-        self._set_status("Error: " + message, self.ERROR_COLOR)
+        self._set_status("Error: " + message, "error")
         messagebox.showerror("Bank Client Manager", message, parent=self.root)
-
     def _on_unexpected_error(self, exc_type, exc_value, exc_traceback):
         self.show_error(f"Unexpected problem: {exc_value}. Nothing was changed.")
 
@@ -371,7 +488,7 @@ class BankApp:
             parent=self.root, title="Select a client file",
             filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt"), ("All files", "*.*")])
         if not path:
-            self._set_status("Load cancelled. Nothing was changed.", self.NEUTRAL_COLOR)
+            self._set_status("Load cancelled. Nothing was changed.")
             return
 
         status = ctypes.c_int(BANK_ERR_UNKNOWN)
@@ -406,7 +523,7 @@ class BankApp:
             parent=self.root, title="Save client data as", defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt"), ("All files", "*.*")])
         if not path:
-            self._set_status("Save cancelled. Nothing was written.", self.NEUTRAL_COLOR)
+            self._set_status("Save cancelled. Nothing was written.")
             return
 
         status = self.lib.bank_save(self.bank, path_to_c(path))
@@ -548,4 +665,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
